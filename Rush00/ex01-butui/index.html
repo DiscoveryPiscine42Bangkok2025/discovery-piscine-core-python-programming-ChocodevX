@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Check Detector</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'IBM Plex Sans Thai', sans-serif; background: #1a1a1a; color: #e8e4dc; min-height: 100vh; }
+    .board-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; position: relative; font-size: clamp(18px, 3.5vw, 36px); transition: background 0.15s; user-select: none; }
+    .cell-light { background: #b8b0a0; }
+    .cell-dark  { background: #6b6058; }
+    .board-cell:hover { filter: brightness(1.15); }
+    .cell-king     { outline: 3px solid #f5c842; outline-offset: -3px; }
+    .cell-attacker { outline: 3px solid #e05555; outline-offset: -3px; }
+    .cell-path     { background: rgba(220, 90, 90, 0.25) !important; }
+    .cell-selected { outline: 3px solid #60c0f0; outline-offset: -3px; }
+    .piece-label { font-family: 'IBM Plex Mono', monospace; font-weight: 600; font-size: 0.7em; position: absolute; bottom: 2px; right: 4px; opacity: 0.7; line-height: 1; pointer-events: none; }
+    .coord-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9e9990; position: absolute; }
+    .result-success { background: linear-gradient(135deg, #7f1d1d, #991b1b); border: 1px solid #ef4444; }
+    .result-fail { background: linear-gradient(135deg, #14532d, #166534); border: 1px solid #22c55e; }
+    .attacker-badge { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: rgba(239,68,68,0.2); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+    .palette-btn { width: 40px; height: 40px; border-radius: 6px; border: 2px solid transparent; display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer; transition: all 0.15s; background: #2a2a2a; }
+    .palette-btn:hover { border-color: #60c0f0; transform: scale(1.08); }
+    .palette-btn.active { border-color: #60c0f0; background: #1e3a4a; }
+    .size-btn { padding: 4px 12px; border-radius: 4px; border: 1px solid #3a3a3a; background: #2a2a2a; color: #e8e4dc; cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px; transition: all 0.15s; }
+    .size-btn:hover { border-color: #60c0f0; }
+    .size-btn.active { border-color: #60c0f0; background: #1e3a4a; color: #60c0f0; }
+    .check-btn { background: #2d5fa6; border: 1px solid #4080d0; color: #fff; padding: 10px 24px; border-radius: 6px; font-family: 'IBM Plex Sans Thai', sans-serif; font-size: 15px; font-weight: 500; cursor: pointer; transition: all 0.15s; width: 100%; }
+    .check-btn:hover { background: #3a72bf; }
+    .check-btn:active { transform: scale(0.98); }
+    .check-btn:disabled { background: #2a2a2a; color: #555; border-color: #333; cursor: not-allowed; }
+    .clear-btn { background: #2a2a2a; border: 1px solid #3a3a3a; color: #aaa; padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.15s; width: 100%; }
+    .clear-btn:hover { border-color: #e05555; color: #f87171; }
+    .api-status { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+    .api-ok  { background: rgba(34,197,94,0.15); border: 1px solid rgba(34,197,94,0.3); color: #86efac; }
+    .api-err { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+    .board-wrap { border: 2px solid #3a3530; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #1a1a1a; }
+    ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+    .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+
+<div class="min-h-screen flex flex-col">
+  <header class="border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span style="font-size:28px;">&#9812;</span>
+      <div>
+        <h1 style="font-family:'IBM Plex Mono',monospace; font-size:16px; font-weight:600; letter-spacing:0.05em;">CHESS CHECK DETECTOR</h1>
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace;">v2.0 — Web API only</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="api-status api-err" id="apiStatus">⬤ API offline</span>
+      <span style="font-size:11px; color:#555; font-family:'IBM Plex Mono',monospace;" id="apiUrl">localhost:5000</span>
+    </div>
+  </header>
+
+  <main class="flex-1 flex flex-col lg:flex-row gap-0">
+    <div class="flex-1 flex flex-col items-center justify-start p-6 gap-4">
+      <div class="flex items-center gap-3 w-full max-w-lg">
+        <span style="font-size:12px; color:#6b7280; font-family:'IBM Plex Mono',monospace;">SIZE</span>
+        <div class="flex gap-2" id="sizeBtns">
+          <button class="size-btn active" data-size="4">4×4</button>
+          <button class="size-btn" data-size="6">6×6</button>
+          <button class="size-btn" data-size="8">8×8</button>
+          <button class="size-btn" data-size="10">10×10</button>
+        </div>
+        <div class="flex items-center gap-1 ml-auto">
+          <span style="font-size:12px; color:#6b7280; font-family:'IBM Plex Mono',monospace;">custom</span>
+          <input type="number" id="customSize" min="1" max="20" placeholder="N" style="width:52px; background:#2a2a2a; border:1px solid #3a3a3a; color:#e8e4dc; border-radius:4px; padding:3px 6px; font-family:'IBM Plex Mono',monospace; font-size:12px; outline:none;" />
+          <button onclick="applyCustomSize()" class="size-btn">GO</button>
+        </div>
+      </div>
+
+      <div class="board-wrap" id="boardWrap">
+        <div id="board" style="display:grid;"></div>
+      </div>
+      <div style="font-size:11px; color:#555; font-family:'IBM Plex Mono',monospace;">คลิกเซลเพื่อวางหมากที่เลือก · คลิกซ้ำเพื่อลบ</div>
+    </div>
+
+    <div class="lg:w-72 border-t lg:border-t-0 lg:border-l border-zinc-800 p-5 flex flex-col gap-5">
+      <div>
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace; margin-bottom:10px; letter-spacing:0.08em;">PIECE PALETTE</p>
+        <div class="grid grid-cols-4 gap-2" id="palette"></div>
+        <p style="font-size:10px; color:#555; font-family:'IBM Plex Mono',monospace; margin-top:8px;" id="selectedLabel">selected: —</p>
+      </div>
+
+      <div style="background:#242424; border-radius:6px; padding:10px; border:1px solid #2e2e2e;">
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace; margin-bottom:8px; letter-spacing:0.08em;">LIMITS</p>
+        <div id="limitDisplay" style="font-family:'IBM Plex Mono',monospace; font-size:11px; display:flex; flex-direction:column; gap:3px;"></div>
+      </div>
+
+      <div style="background:#242424; border-radius:6px; padding:10px; border:1px solid #2e2e2e;">
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace; margin-bottom:8px; letter-spacing:0.08em;">PIECE COUNT</p>
+        <div id="countDisplay" style="font-family:'IBM Plex Mono',monospace; font-size:11px; display:flex; flex-direction:column; gap:3px;"></div>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <button class="check-btn" id="checkBtn" onclick="runCheck()">ตรวจ Check</button>
+        <div class="flex gap-2">
+          <button class="clear-btn" onclick="clearBoard()" style="width:50%;">ล้าง Board</button>
+          <button class="clear-btn" onclick="loadExample()" style="width:50%; border-color:#3a3a3a; color:#888;">โหลดตัวอย่าง</button>
+        </div>
+      </div>
+
+      <div id="resultBox" class="hidden fade-in" style="border-radius:8px; padding:14px;">
+        <div id="resultText" style="font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:600; margin-bottom:6px;"></div>
+        <div id="resultSub" style="font-size:12px; color:#aaa;"></div>
+        <div id="attackerList" class="flex flex-wrap gap-1 mt-3"></div>
+      </div>
+
+      <div>
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace; margin-bottom:6px; letter-spacing:0.08em;">BOARD STRING</p>
+        <textarea id="boardRaw" readonly style="width:100%; height:80px; background:#141414; border:1px solid #2e2e2e; border-radius:6px; color:#60a090; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:8px; resize:none; outline:none; line-height:1.6;"></textarea>
+      </div>
+
+      <div>
+        <p style="font-size:11px; color:#6b7280; font-family:'IBM Plex Mono',monospace; margin-bottom:6px; letter-spacing:0.08em;">API ENDPOINT</p>
+        <input type="text" id="apiInput" value="http://localhost:5000/api/check" style="width:100%; background:#141414; border:1px solid #2e2e2e; border-radius:6px; color:#aaa; font-family:'IBM Plex Mono',monospace; font-size:11px; padding:6px 8px; outline:none;" />
+        <button onclick="pingApi()" class="clear-btn mt-2" style="font-size:11px; padding:5px;">Ping API</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+// --- State ---
+const PIECES = [
+  { key: 'K', label: 'King',   icon: '♔', limit: '= 1' },
+  { key: 'Q', label: 'Queen',  icon: '♕', limit: '≤ 1' },
+  { key: 'R', label: 'Rook',   icon: '♖', limit: '≤ 2' },
+  { key: 'B', label: 'Bishop', icon: '♗', limit: '≤ 2' },
+  { key: 'N', label: 'Knight', icon: '♘', limit: '≤ 2' },
+  { key: 'P', label: 'Pawn',   icon: '♙', limit: '≤ N' },
+];
+const ERASER = '.';
+
+let boardSize = 4;
+let boardData = [];
+let selectedPiece = 'K';
+let lastResult = null;
+let kingPos = null;
+let attackerCells = [];
+let pathCells = [];
+
+// --- Init ---
+function initBoard(size) {
+  boardSize = size;
+  boardData = Array.from({ length: size }, () => Array(size).fill('.'));
+  lastResult = null;
+  attackerCells = [];
+  pathCells = [];
+  kingPos = null;
+  renderBoard();
+  updateRaw();
+  updateCounts();
+  document.getElementById('resultBox').classList.add('hidden');
+}
+
+function renderBoard() {
+  const container = document.getElementById('board');
+  const cellSize = Math.min(Math.floor(560 / boardSize), 72);
+  container.style.gridTemplateColumns = `repeat(${boardSize}, ${cellSize}px)`;
+  container.innerHTML = '';
+
+  for (let r = 0; r < boardSize; r++) {
+    for (let c = 0; c < boardSize; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'board-cell ' + ((r + c) % 2 === 0 ? 'cell-light' : 'cell-dark');
+      cell.style.width = cell.style.height = cellSize + 'px';
+      cell.style.fontSize = Math.floor(cellSize * 0.52) + 'px';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+
+      const piece = boardData[r][c];
+      if (piece !== '.') {
+        const info = PIECES.find(p => p.key === piece);
+        cell.textContent = info ? info.icon : piece;
+        const lbl = document.createElement('span');
+        lbl.className = 'piece-label';
+        lbl.textContent = piece;
+        lbl.style.fontSize = Math.max(8, Math.floor(cellSize * 0.18)) + 'px';
+        cell.appendChild(lbl);
+      }
+
+      if (c === 0) {
+        const lbl = document.createElement('span');
+        lbl.className = 'coord-label';
+        lbl.style.cssText = 'top:2px; left:3px;';
+        lbl.textContent = boardSize - r;
+        cell.appendChild(lbl);
+      }
+      if (r === boardSize - 1) {
+        const lbl = document.createElement('span');
+        lbl.className = 'coord-label';
+        lbl.style.cssText = 'bottom:2px; right:3px;';
+        lbl.textContent = String.fromCharCode(65 + c);
+        cell.appendChild(lbl);
+      }
+
+      if (lastResult) {
+        if (kingPos && kingPos[0] === r && kingPos[1] === c)
+          cell.classList.add(lastResult.in_check ? 'cell-attacker' : 'cell-king');
+        else if (attackerCells.some(a => a[0] === r && a[1] === c))
+          cell.classList.add('cell-attacker');
+        else if (pathCells.some(p => p[0] === r && p[1] === c))
+          cell.classList.add('cell-path');
+      }
+
+      cell.addEventListener('click', () => onCellClick(r, c));
+      container.appendChild(cell);
+    }
+  }
+}
+
+function onCellClick(r, c) {
+  if (selectedPiece === ERASER) {
+    boardData[r][c] = '.';
+  } else if (boardData[r][c] === selectedPiece) {
+    boardData[r][c] = '.';
+  } else {
+    if (selectedPiece === 'K') {
+      for (let rr = 0; rr < boardSize; rr++)
+        for (let cc = 0; cc < boardSize; cc++)
+          if (boardData[rr][cc] === 'K') boardData[rr][cc] = '.';
+    }
+    boardData[r][c] = selectedPiece;
+  }
+  lastResult = null;
+  attackerCells = [];
+  pathCells = [];
+  kingPos = null;
+  document.getElementById('resultBox').classList.add('hidden');
+  renderBoard();
+  updateRaw();
+  updateCounts();
+}
+
+// --- Palette ---
+function buildPalette() {
+  const container = document.getElementById('palette');
+  container.innerHTML = '';
+  PIECES.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'palette-btn' + (p.key === selectedPiece ? ' active' : '');
+    btn.title = p.label;
+    btn.textContent = p.icon;
+    btn.dataset.key = p.key;
+    btn.addEventListener('click', () => selectPiece(p.key));
+    container.appendChild(btn);
+  });
+  const erBtn = document.createElement('button');
+  erBtn.className = 'palette-btn' + (selectedPiece === ERASER ? ' active' : '');
+  erBtn.title = 'Erase';
+  erBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 15L12 6L15 9L6 18" stroke="currentColor" stroke-width="1.5"/><path d="M2 15h14" stroke="currentColor" stroke-width="1.5"/></svg>';
+  erBtn.dataset.key = ERASER;
+  erBtn.addEventListener('click', () => selectPiece(ERASER));
+  container.appendChild(erBtn);
+  buildLimits();
+}
+
+function selectPiece(key) {
+  selectedPiece = key;
+  document.querySelectorAll('.palette-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.key === key);
+  });
+  const info = PIECES.find(p => p.key === key);
+  document.getElementById('selectedLabel').textContent =
+    'selected: ' + (key === ERASER ? 'eraser' : `${info.icon} ${info.label} (${info.key})`);
+}
+
+function buildLimits() {
+  const el = document.getElementById('limitDisplay');
+  el.innerHTML = PIECES.map(p =>
+    `<div style="display:flex;justify-content:space-between;">
+       <span style="color:#888;">${p.icon} ${p.label}</span>
+       <span style="color:#60c0f0;">${p.limit.replace('N', boardSize)}</span>
+     </div>`
+  ).join('');
+}
+
+function updateCounts() {
+  const counts = {};
+  PIECES.forEach(p => counts[p.key] = 0);
+  for (let r = 0; r < boardSize; r++)
+    for (let c = 0; c < boardSize; c++)
+      if (boardData[r][c] !== '.') counts[boardData[r][c]] = (counts[boardData[r][c]] || 0) + 1;
+
+  const el = document.getElementById('countDisplay');
+  el.innerHTML = PIECES.map(p => {
+    const n = counts[p.key] || 0;
+    const ok = validateCount(p.key, n);
+    return `<div style="display:flex;justify-content:space-between;">
+      <span style="color:#888;">${p.icon} ${p.key}</span>
+      <span style="color:${ok ? '#86efac' : '#f87171'};">${n} ${ok ? '✓' : '✗'}</span>
+    </div>`;
+  }).join('');
+}
+
+function validateCount(key, n) {
+  if (key === 'K') return n === 1;
+  if (key === 'Q') return n <= 1;
+  if (key === 'R' || key === 'B' || key === 'N') return n <= 2;
+  if (key === 'P') return n <= boardSize;
+  return true;
+}
+
+function updateRaw() {
+  const raw = boardData.map(row => row.join('')).join('\n');
+  document.getElementById('boardRaw').value = raw;
+}
+
+// --- API Only Check (No Fallback) ---
+async function runCheck() {
+  const btn = document.getElementById('checkBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> กำลังประมวลผล...';
+
+  const board = boardData.map(row => row.join(''));
+  const apiUrl = document.getElementById('apiInput').value.trim();
+  
+  try {
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board }),
+      signal: AbortSignal.timeout(5000),
+    });
+    
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'API Error');
+    
+    applyResult(data);
+    setApiStatus(true);
+  } catch (err) {
+    showResult({ error: `ไม่สามารถติดต่อ API ได้: ${err.message}` });
+    setApiStatus(false);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'ตรวจ Check';
+  }
+}
+
+function applyResult(data) {
+  lastResult = data;
+  for (let r = 0; r < boardSize; r++)
+    for (let c = 0; c < boardSize; c++)
+      if (boardData[r][c] === 'K') kingPos = [r, c];
+
+  attackerCells = (data.attackers || []).map(a => [a.row, a.col]);
+  pathCells = (data.attackers || []).flatMap(a => (a.path || []).map(p => [p[0], p[1]]));
+
+  renderBoard();
+  showResult(data);
+}
+
+function showResult(data) {
+  const box = document.getElementById('resultBox');
+  const txt = document.getElementById('resultText');
+  const sub = document.getElementById('resultSub');
+  const list = document.getElementById('attackerList');
+
+  box.classList.remove('hidden');
+  box.className = box.className.replace(/result-\w+/g, '').replace('hidden', '').trim();
+
+  if (data.error) {
+    box.style.background = '#2a1a1a';
+    box.style.border = '1px solid #7f1d1d';
+    txt.textContent = '⚠ Error';
+    txt.style.color = '#f87171';
+    sub.textContent = data.error;
+    list.innerHTML = '';
+    return;
+  }
+
+  if (data.in_check) {
+    box.style.background = 'linear-gradient(135deg,#7f1d1d,#991b1b)';
+    box.style.border = '1px solid #ef4444';
+    txt.textContent = '⚠ CHECK';
+    txt.style.color = '#fca5a5';
+    sub.textContent = `King ถูก check จาก ${data.attackers?.length || 0} ตัว`;
+  } else {
+    box.style.background = 'linear-gradient(135deg,#14532d,#166534)';
+    box.style.border = '1px solid #22c55e';
+    txt.textContent = '✓ SAFE';
+    txt.style.color = '#86efac';
+    sub.textContent = 'King ปลอดภัย ไม่ถูก check';
+  }
+
+  list.innerHTML = (data.attackers || []).map(a =>
+    `<span class="attacker-badge">${PIECES.find(p=>p.key===a.piece)?.icon||''} ${a.piece} (${a.row},${a.col})</span>`
+  ).join('');
+}
+
+// --- Utilities ---
+function clearBoard() { initBoard(boardSize); }
+
+function loadExample() {
+  initBoard(8);
+  boardData[4][3] = 'K';
+  boardData[4][7] = 'R';
+  boardData[1][1] = 'B';
+  boardData[6][2] = 'P';
+  boardData[2][5] = 'N';
+  renderBoard(); updateRaw(); updateCounts();
+}
+
+function applyCustomSize() {
+  const v = parseInt(document.getElementById('customSize').value);
+  if (v >= 1 && v <= 20) {
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+    initBoard(v);
+    buildLimits();
+  }
+}
+
+async function pingApi() {
+  const base = document.getElementById('apiInput').value.replace('/api/check','');
+  try {
+    const res = await fetch(base + '/health', { signal: AbortSignal.timeout(2000) });
+    setApiStatus(res.ok);
+  } catch { setApiStatus(false); }
+}
+
+function setApiStatus(ok) {
+  const el = document.getElementById('apiStatus');
+  el.className = 'api-status ' + (ok ? 'api-ok' : 'api-err');
+  el.textContent = ok ? '⬤ API online' : '⬤ API offline';
+}
+
+document.querySelectorAll('[data-size]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const s = parseInt(btn.dataset.size);
+    document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    initBoard(s);
+    buildLimits();
+  });
+});
+
+buildPalette();
+selectPiece('K');
+initBoard(4);
+pingApi();
+</script>
+</body>
+</html>
