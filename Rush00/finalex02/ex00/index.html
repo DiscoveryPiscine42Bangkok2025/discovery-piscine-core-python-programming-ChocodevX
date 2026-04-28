@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess - Temporary Highlight</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap');
+
+    body {
+      font-family: 'IBM Plex Sans Thai', sans-serif;
+      background: #1a1a1a;
+      color: #e8e4dc;
+      min-height: 100vh;
+    }
+
+    .board-cell {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(20px, 6vw, 45px);
+      position: relative;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .cell-light {
+      background: #b8b0a0;
+    }
+
+    .cell-dark {
+      background: #6b6058;
+    }
+
+    .board-cell:hover {
+      filter: brightness(1.1);
+    }
+
+    .cell-selected {
+      background: #a2b050 !important;
+    }
+
+    .cell-path::after {
+      content: '';
+      position: absolute;
+      width: 25%;
+      height: 25%;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .cell-temp-highlight {
+      background-color: rgba(255, 255, 255, 0.4) !important;
+      transition: background-color 0.5s ease-out;
+    }
+
+    .piece-white {
+      color: #ffffff;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+      z-index: 10;
+    }
+
+    .piece-black {
+      color: #111111;
+      filter: drop-shadow(0px 1px 1px rgba(255, 255, 255, 0.3));
+      z-index: 10;
+    }
+
+    .coord-label {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      position: absolute;
+      opacity: 0.6;
+      color: #333;
+      pointer-events: none;
+    }
+
+    .board-wrap {
+      border: 6px solid #2a2622;
+      border-radius: 4px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      width: 100%;
+      max-width: 560px;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      background: #2a2622;
+    }
+
+    .btn {
+      background: #2d5fa6;
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn:hover {
+      background: #3a72bf;
+    }
+  </style>
+</head>
+
+<body class="flex flex-col items-center justify-center py-10">
+
+  <div class="w-full max-w-4xl px-4 flex flex-col md:flex-row gap-8 items-center md:items-start">
+    <div class="board-wrap flex-1">
+      <div id="board"></div> 
+    </div>
+
+    <div class="w-full md:w-72 flex flex-col gap-5 bg-[#242424] p-6 rounded-lg border border-[#2e2e2e]">
+      <h1 class="text-xl font-bold flex items-center gap-2"><span>&#9812;</span> CHESS VS BOT</h1>
+      <div id="statusBox" class="p-4 rounded bg-zinc-900 text-sm font-mono border border-zinc-700">Status: กด New Game
+      </div>
+      <button class="btn" onclick="startNewGame()">New Game</button>
+      <div class="mt-2">
+        <label class="text-[10px] text-zinc-500 font-mono mb-1 block uppercase">API URL</label>
+        <input type="text" id="apiUrl" value="http://localhost:5001/api/game"
+          class="w-full bg-black border border-zinc-800 text-xs p-2 rounded text-zinc-400 outline-none" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // หมากบนกระดาน
+    const PIECE_ICONS = {
+      'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙',
+      'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟'
+    };
+
+    // Config และ State ของเกม
+    let currentFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let selectedSquare = null;
+    let validMoves = [];
+    let isPlayerTurn = true;
+    let tempMove = { from: null, to: null };
+
+    // ฟังก์ชันช่วยสำหรับสร้าง URL API
+    function getApiUrl(endpoint) { return document.getElementById('apiUrl').value + endpoint; }
+
+    // อัพเดตข้อความฝั่งขวา
+    function updateStatus(text, color = '#e8e4dc') {
+      const box = document.getElementById('statusBox');
+      box.textContent = text; box.style.color = color;
+    }
+
+    // แปลง index แถว-คอลัมน์เป็นชื่อช่องหมากรุก
+    function getSquareName(r, c) { return String.fromCharCode(97 + c) + (8 - r); }
+
+    // สร้างกระดานและแสดงผลใหม่ทุกครั้ง เเละ รับการรัน
+    function renderBoard() {
+      const container = document.getElementById('board');
+      container.innerHTML = '';
+      let board2D = Array.from({ length: 8 }, () => Array(8).fill('.'));
+
+      if (currentFen) {
+        const fenRows = currentFen.split(' ')[0].split('/');
+        for (let r = 0; r < 8; r++) {
+          if (!fenRows[r]) continue;
+          let c = 0;
+          for (let char of fenRows[r]) {
+            if (!isNaN(char)) { c += parseInt(char); }
+            else { if (c < 8) { board2D[r][c] = char; c++; } }
+          }
+        }
+      }
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const sqName = getSquareName(r, c);
+          const cell = document.createElement('div');
+          const isDark = (r + c) % 2 !== 0;
+          cell.className = `board-cell ${isDark ? 'cell-dark' : 'cell-light'}`;
+
+          // เน้นช่องที่เพิ่งเดิน
+          if (tempMove.from === sqName || tempMove.to === sqName) {
+            cell.classList.add('cell-temp-highlight');
+          }
+
+          // ช่องที่เลือกอยู่
+          if (selectedSquare === sqName) cell.classList.add('cell-selected');
+
+          // ช่องเดินได้
+          if (validMoves.includes(sqName)) cell.classList.add('cell-path');
+
+          const piece = board2D[r][c];
+          if (piece !== '.') {
+            cell.textContent = PIECE_ICONS[piece] || '';
+            cell.classList.add(piece === piece.toUpperCase() ? 'piece-white' : 'piece-black');
+          }
+
+          // ป้ายเลขแถวซ้ายบน
+          if (c === 0) {
+            const lbl = document.createElement('span'); lbl.className = 'coord-label left-1 top-0.5';
+            lbl.textContent = 8 - r; cell.appendChild(lbl);
+          }
+          // ป้ายตัวอักษรคอลัมน์ขวาล่าง
+          if (r === 7) {
+            const lbl = document.createElement('span'); lbl.className = 'coord-label right-1 bottom-0.5';
+            lbl.textContent = String.fromCharCode(97 + c); cell.appendChild(lbl);
+          }
+
+          cell.onclick = () => handleSquareClick(sqName, piece);
+          container.appendChild(cell);
+        }
+      }
+    }
+
+    // รีเซ็ตการเน้นชั่วคราวหลังเดินเสร็จ
+    function clearTempHighlight() {
+      setTimeout(() => {
+        tempMove = { from: null, to: null };
+        renderBoard();
+      }, 800);
+    }
+
+    // ตอบสนองเมื่อคลิกช่องบนกระดาน
+    async function handleSquareClick(sqName, piece) {
+      if (!isPlayerTurn) return;
+
+      // เลือกตัวหมากขาว
+      if (!selectedSquare && piece !== '.' && piece === piece.toUpperCase()) {
+        selectedSquare = sqName;
+        await fetchLegalMoves(sqName);
+        renderBoard();
+        return;
+      }
+
+      if (selectedSquare) {
+        if (selectedSquare === sqName) {
+          // ยกเลิกการเลือก
+          selectedSquare = null; validMoves = []; renderBoard();
+        } else if (validMoves.includes(sqName)) {
+          // เดินหมาก
+          const moveUci = selectedSquare + sqName;
+          selectedSquare = null; validMoves = [];
+          await makeMove(moveUci);
+        } else if (piece !== '.' && piece === piece.toUpperCase()) {
+          // เลือกตัวใหม่ถ้าคลิกหมากขาวอีกตัว
+          selectedSquare = sqName; await fetchLegalMoves(sqName); renderBoard();
+        } else {
+          // คลิกช่องอื่น ๆ
+          selectedSquare = null; validMoves = []; renderBoard();
+        }
+      }
+    }
+
+    // เริ่มเกมใหม่รับจาก aip
+    async function startNewGame() {
+      updateStatus("กำลังโหลด...");
+      try {
+        const res = await fetch(getApiUrl('/new'));
+        const data = await res.json();
+        currentFen = data.fen;
+        tempMove = { from: null, to: null };
+        isPlayerTurn = true;
+        renderBoard();
+        updateStatus("ตาของคุณ (ขาว)", "#86efac");
+      } catch (e) { updateStatus("API Error!", "#f87171"); }
+    }
+
+    // ขอข้อมูลการเดินที่ถูกต้องจาก API
+    async function fetchLegalMoves(sqName) {
+      try {
+        const res = await fetch(getApiUrl('/legal_moves'), {
+          method: 'POST', body: JSON.stringify({ fen: currentFen, square: sqName })
+        });
+        const data = await res.json();
+        validMoves = data.legal_moves || [];
+      } catch (e) { validMoves = []; }
+    }
+
+    // ส่งคำสั่งเดินหมากไปยัง API
+    async function makeMove(uciMove) {
+      try {
+        const res = await fetch(getApiUrl('/move'), {
+          method: 'POST', body: JSON.stringify({ fen: currentFen, move: uciMove })
+        });
+        const data = await res.json();
+        if (data.valid) {
+          currentFen = data.fen;
+          tempMove = { from: uciMove.substring(0, 2), to: uciMove.substring(2, 4) };
+          renderBoard();
+          clearTempHighlight();
+
+          if (data.is_game_over) { updateStatus("จบเกม!", "#fcd34d"); return; }
+          updateStatus("บอทกำลังคิด...", "#93c5fd");
+          isPlayerTurn = false;
+          setTimeout(triggerBot, 400);
+        }
+      } catch (e) { console.error(e); }
+    }
+
+    // เรียกบอทให้เดิน
+    async function triggerBot() {
+      try {
+        const res = await fetch(getApiUrl('/bot'), {
+          method: 'POST', body: JSON.stringify({ fen: currentFen })
+        });
+        const data = await res.json();
+        if (data.fen) {
+          currentFen = data.fen;
+          if (data.bot_move) {
+            tempMove = { from: data.bot_move.substring(0, 2), to: data.bot_move.substring(2, 4) };
+          }
+          renderBoard();
+          clearTempHighlight();
+
+          if (data.is_game_over) { updateStatus("จบเกม!", "#fcd34d"); return; }
+          isPlayerTurn = true;
+          updateStatus("ตาของคุณ (ขาว)", "#86efac");
+        }
+      } catch (e) { updateStatus("Bot Error!", "#f87171"); isPlayerTurn = true; }
+    }
+
+    // รันทั้งหมด
+    renderBoard();
+  </script>
+</body>
+
+</html>

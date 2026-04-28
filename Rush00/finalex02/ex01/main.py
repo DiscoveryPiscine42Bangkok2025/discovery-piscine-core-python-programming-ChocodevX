@@ -47,6 +47,6 @@ def health():
 
 if __name__ == "__main__":
     # กำหนด Port เริ่มต้นที่ 5000
-    port = 5001
+    port = 5555
     print(f"🚀 Chess Check API running → http://localhost:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
