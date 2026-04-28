@@ -1,7 +1,3 @@
-"""
-main.py — Flask API server สำหรับ Chess Check Detector (Web Only)
-"""
-
 import sys
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -51,6 +47,6 @@ def health():
 
 if __name__ == "__main__":
     # กำหนด Port เริ่มต้นที่ 5000
-    port = 5000
+    port = 5001
     print(f"🚀 Chess Check API running → http://localhost:{port}")
     app.run(host='0.0.0.0', port=port, debug=True)
